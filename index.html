@@ -127,3 +127,103 @@ function series(){
  const m={};books.filter(b=>b.series).forEach(b=>(m[b.series]=m[b.series]||[]).push(b));
  const k=Object.keys(m).sort((a,b)=>a.localeCompare(b,'ru'));
  $('app').innerHTML=k.length?k.map(n=>{const l=m[n].sort((a,b)=>(a.seriesNo||0)-(b.seriesNo||0)),r=l.filter(b=>b.status==='read').length;
+  return `<h3>${esc(n)}</h3><div class="m">Прочитано ${r} из ${l.length}</div><div class="pg"><i style="width:${r/l.length*100}%"></i></div>`+
+  l.map(b=>`<div class="book" data-id="${b.id}"><div class="bi"><span class="r">${b.rating?esc(b.rating):''}</span><div class="t">${b.seriesNo?esc(b.seriesNo)+'. ':''}${esc(b.title)}</div><span class="st ${b.status}">${ST[b.status]}</span></div></div>`).join('')}).join(''):'<div class="empty">Укажи серию в карточке книги,<br>и здесь появится прогресс по сериям.</div>';
+}
+function quotes(){
+ const a=[];books.forEach(b=>(b.quotes||'').split('\n').filter(x=>x.trim()).forEach(x=>a.push([x.trim(),b])));
+ $('app').innerHTML=a.length?`<div class="bar"><button class="b" id="rnd">🎲 Случайная цитата</button></div><div id="qs">`+a.map(([x,b])=>`<div class="q" data-id="${b.id}">«${esc(x)}»<div class="m">${esc(b.title)}${b.author?', '+esc(b.author):''}</div></div>`).join('')+'</div>':'<div class="empty">Цитаты добавляются в карточке книги.</div>';
+ if(a.length)$('rnd').onclick=()=>{const [x,b]=a[Math.floor(Math.random()*a.length)];$('qs').innerHTML=`<div class="q" data-id="${b.id}" style="font-size:20px">«${esc(x)}»<div class="m">${esc(b.title)}${b.author?', '+esc(b.author):''}</div></div>`};
+}
+function bars(o,f){const k=Object.keys(o).sort(f),mx=Math.max(...k.map(x=>o[x]),1);
+ return k.map(x=>`<div class="hb"><span>${x}</span><i style="width:${o[x]/mx*70}%"></i><span>${o[x]}</span></div>`).join('')||'<div class="m">Нет данных</div>'}
+function stats(){
+ const rd=books.filter(b=>b.status==='read'),rt=books.filter(b=>b.rating),Y=String(new Date().getFullYear());
+ const avg=rt.length?(rt.reduce((a,b)=>a+ +b.rating,0)/rt.length).toFixed(1):'—';
+ const pg=rd.reduce((a,b)=>a+(+b.pages||0),0),yr={},rg={};
+ rd.forEach(b=>{if(b.finished){const y=b.finished.slice(0,4);yr[y]=(yr[y]||0)+1}});
+ rt.forEach(b=>rg[b.rating]=(rg[b.rating]||0)+1);
+ const done=yr[Y]||0;
+ $('app').innerHTML=`<div class="grid">
+ <div class="big"><b>${rd.length}</b>прочитано</div><div class="big"><b>${avg}</b>средняя оценка</div>
+ <div class="big"><b>${pg}</b>страниц прочитано</div><div class="big"><b>${books.filter(b=>b.status==='want').length}</b>в планах</div></div>
+ <h3>Цель на ${Y} год</h3><div class="row"><input id="goal" type="number" inputmode="numeric" placeholder="Сколько книг?" value="${goal||''}"></div>
+ ${goal?`<div class="pg"><i style="width:${Math.min(100,done/goal*100)}%"></i></div><div class="m">${done} из ${goal}${done>=goal?' — цель выполнена! 🎉':''}</div>`:''}
+ <h3>Прочитано по годам</h3>${bars(yr,(a,b)=>b-a)}
+ <h3>Распределение оценок</h3>${bars(rg,(a,b)=>b-a)}
+ <h3>Ключ Google Книг</h3><input id="gk" placeholder="AIza…" value="${esc(K())}"><p class="m">Нужен для поиска по-русски. Хранится только в этом браузере.</p>
+ <h3>Данные</h3><div class="btns"><button class="b" id="exp">Экспорт</button><button class="b" id="imp">Импорт</button></div>
+ <p class="m">Книги хранятся на этом устройстве. Делай экспорт для резервной копии и переноса на другое устройство.</p>
+ <input type="file" id="file" accept=".json" hidden>`;
+ $('gk').onchange=e=>{try{localStorage.setItem('bibliumKey',e.target.value.trim())}catch(x){}};
+ $('goal').onchange=e=>{goal=+e.target.value||0;loc();if(col)col.doc('goal').set({n:goal});render()};
+ $('exp').onclick=()=>{const a=document.createElement('a');a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(books,null,1));a.download='biblium.json';a.click()};
+ $('imp').onclick=()=>$('file').click();
+ $('file').onchange=e=>{const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(Array.isArray(d)&&confirm('Заменить текущие данные ('+d.length+' книг)?')){books=d;loc();if(col)books.forEach(b=>col.doc('b'+b.id).set(b));render()}}catch(x){alert('Не удалось прочитать файл')}};r.readAsText(e.target.files[0])};
+}
+function rvList(){$('rv').innerHTML=curRv.map((r,i)=>`<div class="rv"><button type="button" data-rm="${i}">×</button><b>${esc(r.src)}</b><br>${esc(r.text)}<br><a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">источник ↗</a></div>`).join('')}
+function open_(id){
+ editId=id;const b=books.find(x=>x.id===id)||{status:'want'};
+ F.forEach(k=>$(k).value=b[k]||'');curCover=b.cover||'';curRv=(b.reviews||[]).slice();
+ $('cp').style.display=curCover?'block':'none';$('ext').innerHTML=b.ext?`★ ${esc(b.ext.avg)} из 5 · оценок: ${esc(b.ext.n||'—')} · <a href="${esc(b.ext.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--rd)">${esc(b.ext.src)} ↗</a>`:'';$('desc').textContent=b.desc||'';$('cp').src=curCover;$('cover').value='';
+ rvList();['rs','ru','rt'].forEach(k=>$(k).value='');
+ $('del').style.display=id?'':'none';$('dlg').showModal();
+}
+$('add').onclick=()=>open_(null);
+$('cancel').onclick=()=>$('dlg').close();
+$('del').onclick=()=>{if(confirm('Удалить книгу?')){const id=editId;books=books.filter(b=>b.id!==id);del(id);$('dlg').close();render()}};
+$('status').onchange=()=>{if($('status').value==='read'&&!$('finished').value)$('finished').value=new Date().toISOString().slice(0,10)};
+$('cover').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{const w=120,h=Math.round(im.height*w/im.width),c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(im,0,0,w,h);curCover=c.toDataURL('image/jpeg',.7);$('cp').src=curCover;$('cp').style.display='block'};im.src=r.result};r.readAsDataURL(f)};
+$('radd').onclick=()=>{const s=$('rs').value.trim(),u=$('ru').value.trim(),t=$('rt').value.trim();
+ if(!s||!/^https:\/\//.test(u)||!t){alert('Нужны источник, ссылка https://… и текст отзыва');return}
+ curRv.push({src:s,url:u,text:t});rvList();['rs','ru','rt'].forEach(k=>$(k).value='')};
+$('rv').onclick=e=>{const i=e.target.dataset.rm;if(i!=null){curRv.splice(+i,1);rvList()}};
+$('f').onsubmit=()=>{
+ const o={};F.forEach(k=>o[k]=$(k).value.trim());o.cover=curCover;o.reviews=curRv;
+ let b;if(editId){b=books.find(x=>x.id===editId);Object.assign(b,o)}else{o.id=Date.now();books.push(o);b=o}
+ put(b);render();
+};
+document.addEventListener('click',e=>{
+ const t=e.target.closest('[data-t]');if(t){tab=t.dataset.t;render();return}
+ const ad=e.target.closest('[data-add]');if(ad){addRes(+ad.dataset.add);return}
+ const b=e.target.closest('[data-id]');if(b)open_(+b.dataset.id);
+});
+
+/* поиск книг в интернете */
+let res=[],lastQ='',srcName='',busy=false,err='',gerr=0;
+const K=()=>{try{return localStorage.getItem('bibliumKey')||''}catch(e){return ''}};
+const has=r=>books.some(b=>b.title===r.title&&b.author===r.author);
+async function gsearch(v){
+ const isb=/^[\d\- xX]{10,17}$/.test(v)&&/\d{9}/.test(v.replace(/\D/g,''));
+ const r=await fetch('https://www.googleapis.com/books/v1/volumes?maxResults=20&printType=books'+(K()?'&key='+encodeURIComponent(K()):'')+'&q='+encodeURIComponent(isb?'isbn:'+v.replace(/[\s-]/g,''):v));
+ if(!r.ok){gerr=r.status;throw 0}const j=await r.json();
+ return (j.items||[]).map(it=>{const x=it.volumeInfo||{},u=(it.volumeInfo&&x.infoLink)||'';return{title:(x.title||'Без названия')+(x.subtitle?': '+x.subtitle:''),author:(x.authors||[]).join(', '),year:(x.publishedDate||'').slice(0,4),pages:x.pageCount||'',genre:(x.categories||[]).join(', '),desc:x.description||'',
+  cover:((x.imageLinks&&(x.imageLinks.thumbnail||x.imageLinks.smallThumbnail))||'').replace('http:','https:'),
+  ext:x.averageRating?{src:'Google Книги',url:u.replace('http:','https:'),avg:x.averageRating,n:x.ratingsCount||''}:null}});
+}
+async function osearch(v){
+ const r=await fetch('https://openlibrary.org/search.json?limit=20&fields=title,author_name,first_publish_year,number_of_pages_median,cover_i,subject&q='+encodeURIComponent(v));
+ if(!r.ok)throw 0;const j=await r.json();
+ return (j.docs||[]).map(d=>({title:d.title||'Без названия',author:(d.author_name||[]).slice(0,3).join(', '),year:d.first_publish_year||'',pages:d.number_of_pages_median||'',genre:(d.subject||[]).slice(0,3).join(', '),desc:'',cover:d.cover_i?'https://covers.openlibrary.org/b/id/'+d.cover_i+'-M.jpg':'',ext:null}));
+}
+async function go(){
+ const v=$('sq').value.trim();if(!v)return;lastQ=v;busy=true;err='';gerr=0;res=[];searchView();
+ try{res=await gsearch(v);srcName='Google Книги'}catch(e){res=[]}
+ if(!res.length){try{res=await osearch(v);srcName='Open Library'}catch(e){}}
+ busy=false;if(!res.length)err=(gerr===429||gerr===403)?'Лимит Google Книг исчерпан. Вставь свой ключ: вкладка «Статистика».':'Ничего не найдено или нет связи с интернетом';searchView();
+}
+function searchView(){
+ if(tab!=='search')return;
+ $('app').innerHTML=`<div class="bar"><input id="sq" placeholder="Название, автор или ISBN" value="${esc(lastQ)}" enterkeyhint="search"><button class="b" id="sgo" style="flex:none;width:auto;padding:0 16px">Найти</button></div>`+
+ (busy?'<div class="empty">Ищу…</div>':err?`<div class="empty">${esc(err)}</div>`:res.length?`<div class="m">Источник: ${esc(srcName)}</div>`+res.map((r,i)=>`<div class="book">${cover(r)}<div class="bi"><div class="t">${esc(r.title)}</div><div class="m">${esc(r.author)}${r.year?', '+esc(r.year):''}${r.pages?' · '+esc(r.pages)+' стр.':''}</div>${r.ext?`<div class="m">★ ${esc(r.ext.avg)} (${esc(r.ext.n||'—')})</div>`:''}<button class="b ad" data-add="${i}" style="margin-top:6px;padding:6px 12px">${has(r)?'✓ В библиотеке':'+ Хочу прочитать'}</button></div></div>`).join(''):'<div class="empty">Найди книгу в интернете<br>и добавь в свою библиотеку.</div>');
+ $('sgo').onclick=go;$('sq').onkeydown=e=>{if(e.key==='Enter')go()};
+}
+function addRes(i){const r=res[i];if(!r||has(r))return;
+ const b={id:Date.now(),title:r.title,author:r.author,year:r.year,pages:r.pages,genre:r.genre,desc:r.desc,cover:r.cover,ext:r.ext,series:'',seriesNo:'',status:'want',rating:'',finished:'',notes:'',quotes:'',reviews:[]};
+ books.push(b);put(b);searchView();
+}
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+render();
+</script>
+</body>
+</html>
