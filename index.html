@@ -53,6 +53,8 @@ h3{margin:18px 0 6px}
 .rv a{color:var(--rd)}.rv button{float:right;border:0;background:none;color:var(--mut);font-size:18px;cursor:pointer}
 #cp{display:none;width:60px;border-radius:6px;margin-top:6px}
 .book .ad{flex:none;width:auto}
+.cv.lg{width:92px;height:132px;font-size:40px}
+#dd{width:min(96vw,520px)}
 </style>
 </head>
 <body>
@@ -65,7 +67,7 @@ h3{margin:18px 0 6px}
 <form id="f" method="dialog">
 <label>Название или ISBN *</label><input id="title" required>
 <label>Автор</label><input id="author">
-<div id="ext" class="m" style="margin-top:8px"></div><div id="desc" class="m" style="max-height:110px;overflow:auto;margin-top:6px"></div>
+<div id="ext" class="m" style="margin-top:8px"></div><button type="button" class="b" id="more" style="display:none;margin-top:8px;width:100%">ℹ Подробнее о книге</button><div id="desc" class="m" style="max-height:110px;overflow:auto;margin-top:6px"></div>
 <div class="row"><div><label>Год</label><input id="year" type="number" inputmode="numeric"></div>
 <div><label>Страниц</label><input id="pages" type="number" inputmode="numeric"></div></div>
 <label>Жанр / теги</label><input id="genre" placeholder="фантастика, классика…">
@@ -85,6 +87,8 @@ h3{margin:18px 0 6px}
 </form>
 </dialog>
 
+<dialog id="dd"><div id="ddc"></div><div class="btns"><button type="button" id="ddx">Закрыть</button></div></dialog>
+
 <script>
 const KEY='bibliumBooks',GK='bibliumGoal',F=['title','author','year','pages','genre','series','seriesNo','status','rating','finished','notes','quotes'];
 const ST={want:'Хочу прочитать',reading:'Читаю',read:'Прочитано'};
@@ -103,7 +107,7 @@ function renderTabs(){
  const t=[['search','Поиск'],['all','Все'],['want','Хочу'],['reading','Читаю'],['read','Прочитано'],['series','Серии'],['quotes','Цитаты'],['stats','Статистика']];
  $('tabs').innerHTML=t.map(([k,l])=>`<button class="${tab===k?'on':''}" data-t="${k}">${l}</button>`).join('');
 }
-const cover=b=>`<div class="cv" style="background:hsl(${hue(b.title)},45%,42%)">${b.cover?`<img src="${esc(b.cover)}" alt="">`:esc(b.title[0]||'?').toUpperCase()}</div>`;
+const cover=(b,c='')=>`<div class="cv ${c}" style="background:hsl(${hue(b.title)},45%,42%)">${b.cover?`<img src="${esc(b.cover)}" alt="">`:esc(b.title[0]||'?').toUpperCase()}</div>`;
 function render(){
  renderTabs();
  if(tab==='search')return searchView();
@@ -165,7 +169,7 @@ function rvList(){$('rv').innerHTML=curRv.map((r,i)=>`<div class="rv"><button ty
 function open_(id){
  editId=id;const b=books.find(x=>x.id===id)||{status:'want'};
  F.forEach(k=>$(k).value=b[k]||'');curCover=b.cover||'';curRv=(b.reviews||[]).slice();
- $('cp').style.display=curCover?'block':'none';$('ext').innerHTML=b.ext?`★ ${esc(b.ext.avg)} из 5 · оценок: ${esc(b.ext.n||'—')} · <a href="${esc(b.ext.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--rd)">${esc(b.ext.src)} ↗</a>`:'';$('desc').textContent=b.desc||'';$('cp').src=curCover;$('cover').value='';
+ $('cp').style.display=curCover?'block':'none';$('ext').innerHTML=b.ext?`★ ${esc(b.ext.avg)} из 5 · оценок: ${esc(b.ext.n||'—')} · <a href="${esc(b.ext.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--rd)">${esc(b.ext.src)} ↗</a>`:'';$('desc').textContent=b.desc||'';$('more').style.display=(b.desc||b.facts)?'':'none';$('cp').src=curCover;$('cover').value='';
  rvList();['rs','ru','rt'].forEach(k=>$(k).value='');
  $('del').style.display=id?'':'none';$('dlg').showModal();
 }
@@ -185,26 +189,35 @@ $('f').onsubmit=()=>{
 };
 document.addEventListener('click',e=>{
  const t=e.target.closest('[data-t]');if(t){tab=t.dataset.t;render();return}
- const ad=e.target.closest('[data-add]');if(ad){addRes(+ad.dataset.add);return}
+ const ad=e.target.closest('[data-add]');if(ad){addBook(res[+ad.dataset.add],'want');searchView();return}
+ const ds=e.target.closest('[data-ds]');if(ds){addBook(cur,ds.dataset.ds);showDet(cur,1);searchView();return}
+ const dr=e.target.closest('[data-r]');if(dr){showDet(res[+dr.dataset.r]);return}
  const b=e.target.closest('[data-id]');if(b)open_(+b.dataset.id);
 });
 
 /* поиск книг в интернете */
-let res=[],lastQ='',srcName='',busy=false,err='',gerr=0;
+let res=[],lastQ='',srcName='',busy=false,err='',gerr=0,cur=null;
 const K=()=>{try{return localStorage.getItem('bibliumKey')||''}catch(e){return ''}};
 const has=r=>books.some(b=>b.title===r.title&&b.author===r.author);
+const clean=s=>String(s||'').replace(/<br\s*\/?>|<\/p>/gi,'\n').replace(/<[^>]+>/g,'').replace(/&(amp|quot|#39);/g,m=>({'&amp;':'&','&quot;':'"','&#39;':"'"}[m])).trim();
+const fx=a=>a.filter(f=>f[1]);
 async function gsearch(v){
  const isb=/^[\d\- xX]{10,17}$/.test(v)&&/\d{9}/.test(v.replace(/\D/g,''));
  const r=await fetch('https://www.googleapis.com/books/v1/volumes?maxResults=20&printType=books'+(K()?'&key='+encodeURIComponent(K()):'')+'&q='+encodeURIComponent(isb?'isbn:'+v.replace(/[\s-]/g,''):v));
  if(!r.ok){gerr=r.status;throw 0}const j=await r.json();
- return (j.items||[]).map(it=>{const x=it.volumeInfo||{},u=(it.volumeInfo&&x.infoLink)||'';return{title:(x.title||'Без названия')+(x.subtitle?': '+x.subtitle:''),author:(x.authors||[]).join(', '),year:(x.publishedDate||'').slice(0,4),pages:x.pageCount||'',genre:(x.categories||[]).join(', '),desc:x.description||'',
+ return (j.items||[]).map(it=>{const x=it.volumeInfo||{},u=(x.infoLink||'').replace('http:','https:');return{title:(x.title||'Без названия')+(x.subtitle?': '+x.subtitle:''),author:(x.authors||[]).join(', '),year:(x.publishedDate||'').slice(0,4),pages:x.pageCount||'',genre:(x.categories||[]).join(', '),desc:clean(x.description),
   cover:((x.imageLinks&&(x.imageLinks.thumbnail||x.imageLinks.smallThumbnail))||'').replace('http:','https:'),
-  ext:x.averageRating?{src:'Google Книги',url:u.replace('http:','https:'),avg:x.averageRating,n:x.ratingsCount||''}:null}});
+  link:u?{name:'Google Книги',url:u}:null,
+  facts:fx([['Издательство',x.publisher],['Дата издания',x.publishedDate],['Язык',(x.language||'').toUpperCase()],['ISBN',(x.industryIdentifiers||[]).map(i=>i.identifier).join(', ')]]),
+  ext:x.averageRating?{src:'Google Книги',url:u,avg:x.averageRating,n:x.ratingsCount||''}:null}});
 }
 async function osearch(v){
- const r=await fetch('https://openlibrary.org/search.json?limit=20&fields=title,author_name,first_publish_year,number_of_pages_median,cover_i,subject&q='+encodeURIComponent(v));
+ const r=await fetch('https://openlibrary.org/search.json?limit=20&fields=key,title,author_name,first_publish_year,number_of_pages_median,cover_i,subject,edition_count,language,publisher,ratings_average,ratings_count&q='+encodeURIComponent(v));
  if(!r.ok)throw 0;const j=await r.json();
- return (j.docs||[]).map(d=>({title:d.title||'Без названия',author:(d.author_name||[]).slice(0,3).join(', '),year:d.first_publish_year||'',pages:d.number_of_pages_median||'',genre:(d.subject||[]).slice(0,3).join(', '),desc:'',cover:d.cover_i?'https://covers.openlibrary.org/b/id/'+d.cover_i+'-M.jpg':'',ext:null}));
+ return (j.docs||[]).map(d=>{const u='https://openlibrary.org'+d.key;return{key:d.key,title:d.title||'Без названия',author:(d.author_name||[]).slice(0,3).join(', '),year:d.first_publish_year||'',pages:d.number_of_pages_median||'',genre:(d.subject||[]).slice(0,4).join(', '),desc:'',cover:d.cover_i?'https://covers.openlibrary.org/b/id/'+d.cover_i+'-M.jpg':'',
+  link:{name:'Open Library',url:u},
+  facts:fx([['Первое издание',d.first_publish_year],['Всего изданий',d.edition_count],['Языки',(d.language||[]).slice(0,6).join(', ')],['Издательства',(d.publisher||[]).slice(0,3).join(', ')]]),
+  ext:d.ratings_average?{src:'Open Library',url:u,avg:Math.round(d.ratings_average*10)/10,n:d.ratings_count||''}:null}});
 }
 async function go(){
  const v=$('sq').value.trim();if(!v)return;lastQ=v;busy=true;err='';gerr=0;res=[];searchView();
@@ -215,13 +228,30 @@ async function go(){
 function searchView(){
  if(tab!=='search')return;
  $('app').innerHTML=`<div class="bar"><input id="sq" placeholder="Название, автор или ISBN" value="${esc(lastQ)}" enterkeyhint="search"><button class="b" id="sgo" style="flex:none;width:auto;padding:0 16px">Найти</button></div>`+
- (busy?'<div class="empty">Ищу…</div>':err?`<div class="empty">${esc(err)}</div>`:res.length?`<div class="m">Источник: ${esc(srcName)}</div>`+res.map((r,i)=>`<div class="book">${cover(r)}<div class="bi"><div class="t">${esc(r.title)}</div><div class="m">${esc(r.author)}${r.year?', '+esc(r.year):''}${r.pages?' · '+esc(r.pages)+' стр.':''}</div>${r.ext?`<div class="m">★ ${esc(r.ext.avg)} (${esc(r.ext.n||'—')})</div>`:''}<button class="b ad" data-add="${i}" style="margin-top:6px;padding:6px 12px">${has(r)?'✓ В библиотеке':'+ Хочу прочитать'}</button></div></div>`).join(''):'<div class="empty">Найди книгу в интернете<br>и добавь в свою библиотеку.</div>');
+ (busy?'<div class="empty">Ищу…</div>':err?`<div class="empty">${esc(err)}</div>`:res.length?`<div class="m">Источник: ${esc(srcName)}. Нажми на книгу, чтобы открыть её страницу.</div>`+res.map((r,i)=>`<div class="book" data-r="${i}">${cover(r)}<div class="bi"><div class="t">${esc(r.title)}</div><div class="m">${esc(r.author)}${r.year?', '+esc(r.year):''}${r.pages?' · '+esc(r.pages)+' стр.':''}</div>${r.ext?`<div class="m">★ ${esc(r.ext.avg)} (${esc(r.ext.n||'—')})</div>`:''}<button class="b ad" data-add="${i}" style="margin-top:6px;padding:6px 12px">${has(r)?'✓ В библиотеке':'+ Хочу прочитать'}</button></div></div>`).join(''):'<div class="empty">Найди книгу в интернете<br>и добавь в свою библиотеку.</div>');
  $('sgo').onclick=go;$('sq').onkeydown=e=>{if(e.key==='Enter')go()};
 }
-function addRes(i){const r=res[i];if(!r||has(r))return;
- const b={id:Date.now(),title:r.title,author:r.author,year:r.year,pages:r.pages,genre:r.genre,desc:r.desc,cover:r.cover,ext:r.ext,series:'',seriesNo:'',status:'want',rating:'',finished:'',notes:'',quotes:'',reviews:[]};
- books.push(b);put(b);searchView();
+function addBook(r,st){if(!r||has(r))return;
+ const b={id:Date.now(),title:r.title,author:r.author,year:r.year,pages:r.pages,genre:r.genre,desc:r.desc,cover:r.cover,ext:r.ext,facts:r.facts,link:r.link,key:r.key,series:'',seriesNo:'',status:st,rating:'',finished:st==='read'?new Date().toISOString().slice(0,10):'',notes:'',quotes:'',reviews:[]};
+ books.push(b);put(b);
 }
+async function olWork(r){
+ try{const j=await(await fetch('https://openlibrary.org'+r.key+'.json')).json();let d=j.description;if(d&&d.value)d=d.value;
+  if(typeof d==='string'){r.desc=clean(d);if(cur===r)showDet(r,1)}}catch(e){}
+}
+function showDet(r,keep){
+ if(!r)return;cur=r;const lib=books.includes(r)||has(r),e=r.ext;
+ $('ddc').innerHTML=`<div style="display:flex;gap:14px">${cover(r,'lg')}<div class="bi"><div class="t" style="font-size:19px">${esc(r.title)}</div><div class="m">${esc(r.author)}</div><div class="m">${[r.year,r.pages?r.pages+' стр.':''].filter(Boolean).map(esc).join(' · ')}</div>${e?`<div style="margin-top:6px;color:var(--ac);font-weight:bold">★ ${esc(e.avg)} <span class="m">(${esc(e.n||'—')}) · <a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--rd)">${esc(e.src)} ↗</a></span></div>`:''}</div></div>`+
+ (r.genre?`<div class="m" style="margin-top:10px">${esc(r.genre)}</div>`:'')+
+ `<h3>Описание</h3><div style="white-space:pre-line;font-size:15px">${r.desc?esc(r.desc):'<span class="m">Описание не найдено.</span>'}</div>`+
+ ((r.facts&&r.facts.length)?'<h3>Факты</h3>'+r.facts.map(f=>`<div class="hb"><span style="width:120px;flex:none">${esc(f[0])}</span><span>${esc(f[1])}</span></div>`).join(''):'')+
+ (r.link?`<p><a href="${esc(r.link.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--rd)">Открыть на сайте: ${esc(r.link.name)} ↗</a></p>`:'')+
+ (lib?'<div class="m">✓ Книга в твоей библиотеке</div>':'<div class="btns"><button type="button" class="b pri" data-ds="want">+ Хочу</button><button type="button" class="b" data-ds="reading">Читаю</button><button type="button" class="b" data-ds="read">Прочитал</button></div>');
+ if(!$('dd').open)$('dd').showModal();
+ if(r.key&&!r.desc&&!keep)olWork(r);
+}
+$('ddx').onclick=()=>$('dd').close();
+$('more').onclick=()=>showDet(books.find(x=>x.id===editId));
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 render();
 </script>
